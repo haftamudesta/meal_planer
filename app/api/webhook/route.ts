@@ -26,7 +26,7 @@ export async function POST(request:NextRequest){
                 }
                 case "invoice.payment_failed":{
                       const session=event.data.object as Stripe.Invoice
-                      await handleInvoicePaymentFaild(session)
+                      await handleInvoicePaymentFailed(session)
                         break;   
                 }
                 case "customer.subscription.deleted":{
@@ -58,7 +58,6 @@ async function handleCheckoutSessionCompleted(session:Stripe.Checkout.Session){
         }
         try {
                 const planType = session.metadata?.planType || null;
-                console.log("plan Type:",planType)
              await prisma.profile.update({
                 where:{userId},
                 data:{
@@ -71,7 +70,11 @@ async function handleCheckoutSessionCompleted(session:Stripe.Checkout.Session){
                 console.log(error)           
         }
 }
-async function handleInvoicePaymentFaild(invoice:Stripe.Invoice){
+async function handleInvoicePaymentFailed(invoice:Stripe.Invoice){
+        if (!invoice.subscription) {
+    console.log("⚠️ Invoice not related to a subscription, skipping");
+    return;
+  }
         const subscriptionId=invoice.subscription as string;
         if(!subscriptionId){
                 return
