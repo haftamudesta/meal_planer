@@ -1,6 +1,44 @@
-import { clerkMiddleware } from '@clerk/nextjs/server'
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+// import { protect } from '@clerk/nextjs';
+import {NextResponse} from "next/server"
 
-export default clerkMiddleware()
+const isProtectedRoute=createRouteMatcher(["/user-profile"])
+const isPublicRoute=createRouteMatcher([
+  "/",
+  "/sign-up(.*)",
+  "/subscribe(.*)",
+  "/api/webhook(.*)",
+  "/api/check-subscription(.*)"
+  ])
+const isSignUpRoute=createRouteMatcher(["/sign-up(.*)"])
+const isMealPlanRouter=createRouteMatcher("/mealplan(.*)")
+
+export default clerkMiddleware(async (auth,req)=>{
+  const userAuth=await auth();
+  const {userId}=userAuth;
+  const {pathname,origin}=req.nextUrl;
+  if(pathname==="/api/check-subscription"){
+    return NextResponse.next()
+  }
+  if(!isPublicRoute(req) && !userId){
+    return NextResponse.redirect(new URL("/sign-up",origin))
+  }
+  if(isSignUpRoute(req) &&userId){
+    return NextResponse.redirect(new URL("/mealplan",origin))
+  }
+  if(isMealPlanRouter(req) && userId){
+    try{
+    const response=await fetch(`${origin}/api/check-subscription/?userId=${userId}`)
+    const data=await response.json();
+    if(!data.subscriptionActive){
+      return NextResponse.redirect(new URL("/subscribe",origin))
+    }
+  }catch(error:any){
+    console.log(error.message)
+  return NextResponse.redirect(new URL("/subscribe",origin))
+}}
+  return NextResponse.next()
+})
 
 export const config = {
   matcher: [
