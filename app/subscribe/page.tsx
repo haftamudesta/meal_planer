@@ -17,6 +17,7 @@ async function subscribeToPlan(
   userId: string,
   email: string,
 ): Promise<SubscribeResponse> {
+  console.log("checkout stage");
   const response = await fetch("/api/checkout", {
     method: "POST",
     headers: {
@@ -108,7 +109,7 @@ export default function SubscripePage() {
             className="border border-gray-400 p-6 shadow-2xl hover:bg-gray-300"
           >
             {plan.isPopular && (
-              <p className="bg-emerald-500 w-[120px] text-white rounded-full px-2 py-0.5 mt-[-30px]">
+              <p className="bg-emerald-500 w-30 text-white rounded-full px-2 py-0.5 -mt-7.5">
                 Most Popular
               </p>
             )}
@@ -131,7 +132,7 @@ export default function SubscripePage() {
                     strokeWidth={2}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className="flex-shrink-0 w-6 h-6 text-emerald-500"
+                    className="shrink-0 w-6 h-6 text-emerald-500"
                   >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
