@@ -1,43 +1,68 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-// import { protect } from '@clerk/nextjs';
-import {NextResponse} from "next/server"
+import { NextResponse } from "next/server"
 
-const isProtectedRoute=createRouteMatcher(["/user-profile"])
-const isPublicRoute=createRouteMatcher([
+const isProtectedRoute = createRouteMatcher(["/user-profile"])
+const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-up(.*)",
   "/subscribe(.*)",
-  "/api/webhook(.*)",
-  "/api/check-subscription(.*)"
-  ])
-const isSignUpRoute=createRouteMatcher(["/sign-up(.*)"])
-const isMealPlanRouter=createRouteMatcher("/mealplan(.*)")
+  "/api/webhook(.*)",   
+  "/api/check-subscription(.*)",
+  "/api/checkout(.*)",
+])
 
-export default clerkMiddleware(async (auth,req)=>{
-  const userAuth=await auth();
-  const {userId}=userAuth;
-  const {pathname,origin}=req.nextUrl;
-  if(pathname==="/api/check-subscription"){
-    return NextResponse.next()
+const isSignUpRoute = createRouteMatcher(["/sign-up(.*)"])
+const isMealPlanRouter = createRouteMatcher("/mealplan(.*)")
+
+export default clerkMiddleware(async (auth, req) => {
+  const userAuth = await auth();
+  const { userId } = userAuth;
+  const { pathname, origin } = req.nextUrl;
+  
+  
+  
+  // Special handling for webhook - ALWAYS allow webhook requests
+  if (pathname.startsWith('/api/webhook')) {
+    return NextResponse.next();
   }
-  if(!isPublicRoute(req) && !userId){
-    return NextResponse.redirect(new URL("/sign-up",origin))
+  
+  // Special handling for checkout API
+  if (pathname === '/api/checkout') {
+    return NextResponse.next();
   }
-  if(isSignUpRoute(req) &&userId){
-    return NextResponse.redirect(new URL("/mealplan",origin))
+  
+  if (pathname === '/api/check-subscription') {
+    return NextResponse.next();
   }
-  if(isMealPlanRouter(req) && userId){
-    try{
-    const response=await fetch(`${origin}/api/check-subscription/?userId=${userId}`)
-    const data=await response.json();
-    if(!data.subscriptionActive){
-      return NextResponse.redirect(new URL("/subscribe",origin))
+  
+  if (!isPublicRoute(req) && !userId) {
+    console.log(`🔒 Redirecting to sign-up: ${pathname}`);
+    return NextResponse.redirect(new URL("/sign-up", origin));
+  }
+  
+  if (isSignUpRoute(req) && userId) {
+    console.log(`✅ Signed in user on sign-up page, redirecting to mealplan`);
+    return NextResponse.redirect(new URL("/mealplan", origin));
+  }
+  
+  if (isMealPlanRouter(req) && userId) {
+    try {
+      console.log(`🍽️ Checking subscription for user: ${userId}`);
+      const response = await fetch(`${origin}/api/check-subscription/?userId=${userId}`);
+      const data = await response.json();
+      console.log(`📊 Subscription status:`, data);
+      
+      if (!data.subscriptionActive) {
+        console.log(`⏳ No active subscription, redirecting to subscribe`);
+        return NextResponse.redirect(new URL("/subscribe", origin));
+      }
+    } catch (error: any) {
+      console.log(`❌ Subscription check error:`, error.message);
+      return NextResponse.redirect(new URL("/subscribe", origin));
     }
-  }catch(error:any){
-    console.log(error.message)
-  return NextResponse.redirect(new URL("/subscribe",origin))
-}}
-  return NextResponse.next()
+  }
+  
+  return NextResponse.next();
 })
 
 export const config = {
