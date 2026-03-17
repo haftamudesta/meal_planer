@@ -1,11 +1,13 @@
-// app/api/generate-mealplan/route.ts
-
-import { NextResponse } from "next/server";
-import { OpenAI } from "openai";
+import { NextResponse, NextRequest } from "next/server";
+import OpenAI from "openai";
 
 const openai = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1", 
+  baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPEN_ROUTER_API_KEY,
+  defaultHeaders: {
+    "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
+    "X-Title": "MealPlan Generator",
+  }
 });
 
 interface DailyMealPlan {
@@ -15,11 +17,18 @@ interface DailyMealPlan {
   Snacks?: string;
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // Extract parameters from the request body
-    const { dietType, calories, allegries, cuisine, snacks } =
-      await request.json();
+    const { dietType, calories, allegries, cuisine, snacks } = await request.json();
+
+    // Validate required fields
+    if (!dietType || !calories) {
+      return NextResponse.json(
+        { error: "Missing required fields: dietType and calories" },
+        { status: 400 }
+      );
+    }
+
     const prompt = `
       You are a professional nutritionist. Create a 7-day meal plan for an individual following a ${dietType} diet aiming for ${calories} calories per day.
       
@@ -27,90 +36,106 @@ export async function POST(request: Request) {
       Preferred cuisine: ${cuisine || "no preference"}.
       Snacks included: ${snacks ? "yes" : "no"}.
       
-      For each day, provide:
-        - Breakfast
-        - Lunch
-        - Dinner
-        ${snacks ? "- Snacks" : ""}
+      For each day (Monday through Sunday), provide:
+        - Breakfast (with calories)
+        - Lunch (with calories)  
+        - Dinner (with calories)
+        ${snacks ? "- Snacks (with calories)" : ""}
       
-      Use simple ingredients and provide brief instructions. Include approximate calorie counts for each meal.
+      Use simple ingredients and brief instructions.
       
-      Structure the response as a JSON object where each day is a key, and each meal (breakfast, lunch, dinner, snacks) is a sub-key. Example:
-      
+      Return ONLY a valid JSON object with this exact structure:
       {
         "Monday": {
-          "Breakfast": "Oatmeal with fruits - 350 calories",
-          "Lunch": "Grilled chicken salad - 500 calories",
-          "Dinner": "Steamed vegetables with quinoa - 600 calories",
-          "Snacks": "Greek yogurt - 150 calories"
+          "Breakfast": "Meal description - 350 calories",
+          "Lunch": "Meal description - 500 calories",
+          "Dinner": "Meal description - 600 calories"
+          ${snacks ? ', "Snacks": "Snack description - 150 calories"' : ''}
         },
-        "Tuesday": {
-          "Breakfast": "Smoothie bowl - 300 calories",
-          "Lunch": "Turkey sandwich - 450 calories",
-          "Dinner": "Baked salmon with asparagus - 700 calories",
-          "Snacks": "Almonds - 200 calories"
-        }
-        // ...and so on for each day
+        // ... Tuesday through Sunday
       }
-
-      Return just the json with no extra commentaries and no backticks.
+      
+      No other text, markdown, or explanations.
     `;
 
-    // Send the prompt to the AI model
-    const response = await openai.chat.completions.create({
-      model: "meta-llama/llama-3.2-3b-instruct:free", // Ensure this model is accessible and suitable
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: 0.7, // Adjust for creativity vs. consistency
-      max_tokens: 1500, // Adjust based on expected response length
-    },
-     {
-  headers: {
-    "HTTP-Referer": "https://yourapp.com", // Replace with your app URL
-    "X-Title": "MealPlan Generator", // Your app name
-  }
-  });
 
-    // Extract the AI's response
-    let aiContent = response.choices[0].message.content!.trim();
-    if (aiContent?.startsWith('```json')) {
-      aiContent = aiContent.slice(7, -3).trim();
-    } else if (aiContent?.startsWith('```')) {
-      aiContent = aiContent.slice(3, -3).trim();
+    // Use the auto-router with fallback models
+    const response = await openai.chat.completions.create({
+      model: "openrouter/auto",  // This lets OpenRouter choose the best available model
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_tokens: 3000,
+    }, {
+      headers: {
+        "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
+        "X-Title": "MealPlan Generator",
+      }
+    });
+
+    console.log("✅ Response received from OpenRouter");
+
+    // Extract and clean the response
+    let aiContent = response.choices[0].message.content?.trim() || "";
+    
+    // Remove markdown code blocks if present
+    aiContent = aiContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    aiContent = aiContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+
+    const parsedMealPlan = JSON.parse(aiContent);
+
+    const requiredDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const missingDays = requiredDays.filter(day => !parsedMealPlan[day]);
+    
+    if (missingDays.length > 0) {
+      throw new Error(`Missing days in meal plan: ${missingDays.join(', ')}`);
     }
 
-    // Attempt to parse the AI's response as JSON
-    let parsedMealPlan: { [day: string]: DailyMealPlan };
-    try {
-      parsedMealPlan = JSON.parse(aiContent);
-    } catch (parseError) {
-      console.error("Error parsing AI response as JSON:", parseError);
-      // If parsing fails, return the raw text with an error message
+    return NextResponse.json({ 
+      mealPlan: parsedMealPlan,
+      success: true 
+    });
+
+  } catch (error: any) {
+
+    if (error.status === 429) {
       return NextResponse.json(
-        { error: "Failed to parse meal plan. Please try again." },
-        { status: 500 }
+        { 
+          error: "Daily limit reached. Free tier allows 50 requests/day.",
+          details: {
+            limit: 50,
+            suggestion: "Add a small credit ($5-10) to your OpenRouter account for higher limits, or try again tomorrow."
+          }
+        },
+        { status: 429 }
       );
     }
 
-    // Validate the structure of the parsedMealPlan
-    if (typeof parsedMealPlan !== "object" || parsedMealPlan === null) {
-      throw new Error("Invalid meal plan format received from AI.");
+    if (error.status === 402) {
+      return NextResponse.json(
+        { 
+          error: "Insufficient credits. Please add credits to your OpenRouter account.",
+          suggestion: "Visit https://openrouter.ai/settings/credits to add credits."
+        },
+        { status: 402 }
+      );
     }
 
-    // Optionally, perform additional validation on the structure here
+    if (error.status === 404) {
+      return NextResponse.json(
+        { 
+          error: "Model temporarily unavailable. Please try again in a few minutes.",
+          suggestion: "OpenRouter is rotating models. This usually resolves quickly."
+        },
+        { status: 503 }
+      );
+    }
 
-    // Return the parsed meal plan
-    return NextResponse.json({ mealPlan: parsedMealPlan });
-  } catch (error) {
-    console.error("Error generating meal plan:", error);
     return NextResponse.json(
-      { error: "Failed to generate meal plan. Please try again later." },
+      { 
+        error: "Failed to generate meal plan. Please try again.",
+        details: error.message 
+      },
       { status: 500 }
     );
   }
 }
-
