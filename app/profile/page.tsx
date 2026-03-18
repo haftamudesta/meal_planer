@@ -19,7 +19,7 @@ async function fetchSubscriptionStatus() {
 async function updateSubscriptionPlan(newPlan: string) {
   const response = await fetch("/api/profile/change-plan", {
     method: "POST",
-    headers: { "Conten-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ newPlan }),
   });
   return response.json();
@@ -28,7 +28,7 @@ async function updateSubscriptionPlan(newPlan: string) {
 async function unSubscribeToPlan() {
   const response = await fetch("/api/profile/unsubscribe", {
     method: "POST",
-    headers: { "Conten-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
   });
   return response.json();
 }
@@ -70,12 +70,13 @@ export default function ProfilePage() {
 
   const {
     data: unSubscribePlan,
-    mutate: unSubscribedPlanMutation,
+    mutate: unSubscribePlanMutation,
     isPending: isUnSubscribePlanPending,
   } = useMutation({
     mutationFn: unSubscribeToPlan,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["subscription"] });
+      toast.success("You have unsubscribed to the plan successfully!");
       router.push("/subscribe");
     },
     onError: () => {
@@ -95,7 +96,7 @@ export default function ProfilePage() {
   };
   const handleUnsubscribe = () => {
     if (confirm("Are you sure you want to unsubscribe!!!")) {
-      unSubscribedPlanMutation();
+      unSubscribePlanMutation();
     }
   };
   if (!isLoaded) {
@@ -209,7 +210,7 @@ export default function ProfilePage() {
           <button
             onClick={handleUnsubscribe}
             disabled={isUnSubscribePlanPending}
-            className="bg-red-500 rounded-full text-teal-300 px-4 py-2 font-bold"
+            className="bg-red-500 rounded-full text-teal-300 px-4 py-2 font-bold cursor-pointer"
           >
             {isUnSubscribePlanPending ? "Unsubscribing" : "Unsubscribe"}
           </button>
